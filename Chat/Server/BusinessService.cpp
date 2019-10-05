@@ -129,7 +129,7 @@ namespace BusinessService {
 						return;
 					}
 
-					int idx;
+					size_t idx;
 					while ((idx = dir.find("/")) != -1) { // 파일명만 추출
 						dir.erase(0, idx + 1);
 					}
@@ -428,7 +428,7 @@ namespace BusinessService {
 
 			// 유효성 검증 먼저
 			EnterCriticalSection(&roomCs);
-			int cnt = roomMap.count(msg);
+			size_t cnt = roomMap.count(msg);
 
 			if (cnt != 0) { // 방이름 중복
 				LeaveCriticalSection(&roomCs);
@@ -952,112 +952,12 @@ namespace BusinessService {
 
 	}
 
-	// 클라이언트에게 받은 데이터 복사후 구조체 해제
-	// 사용 메모리 전부 반환
-	string BusinessService::DataCopy(LPPER_IO_DATA ioInfo, ClientStatus *status, Direction *direction) {
-
-		copy(((char*)ioInfo->recvBuffer) + 2, ((char*)ioInfo->recvBuffer) + 6,
-			(char*)status);
-		copy(((char*)ioInfo->recvBuffer) + 6, ((char*)ioInfo->recvBuffer) + 10,
-			(char*)direction);
-
-		CharPool* charPool = CharPool::getInstance();
-		char* msg = charPool->Malloc(); // 512 Byte까지 카피 가능
-		copy(((char*)ioInfo->recvBuffer) + 10,
-			((char*)ioInfo->recvBuffer) + 10
-			+ min(ioInfo->bodySize, (DWORD)BUF_SIZE), msg);
-
-		// 다 복사 받았으니 할당 해제
-		charPool->Free(ioInfo->recvBuffer);
-		string str = string(msg);
-		charPool->Free(msg);
-
-		return str;
-	}
-
-	// 패킷 데이터 읽기
-	short BusinessService::PacketReading(LPPER_IO_DATA ioInfo, short bytesTrans) {
-		// IO 완료후 동작 부분
-
-		if (iocpService->RECV == ioInfo->serverMode) {
-			if (bytesTrans >= 2) {
-				copy(ioInfo->buffer, ioInfo->buffer + 2,
-					(char*)&(ioInfo->bodySize));
-				CharPool* charPool = CharPool::getInstance();
-				ioInfo->recvBuffer = charPool->Malloc(); // 512 Byte까지 카피 가능
-				if (bytesTrans - ioInfo->bodySize > 0) { // 패킷 뭉쳐있는 경우
-					copy(ioInfo->buffer, ioInfo->buffer + ioInfo->bodySize,
-						((char*)ioInfo->recvBuffer));
-
-					copy(ioInfo->buffer + ioInfo->bodySize, ioInfo->buffer + bytesTrans, ioInfo->buffer); // 다음에 또 쓸 byte배열 복사
-					return bytesTrans - ioInfo->bodySize; // 남은 바이트 수
-				}
-				else if (bytesTrans - ioInfo->bodySize == 0) { // 뭉쳐있지 않으면 remainByte 0
-					copy(ioInfo->buffer, ioInfo->buffer + ioInfo->bodySize,
-						((char*)ioInfo->recvBuffer));
-					return 0;
-				}
-				else { // 바디 내용 부족 => RecvMore에서 받을 부분 복사
-					copy(ioInfo->buffer, ioInfo->buffer + bytesTrans, ((char*)ioInfo->recvBuffer));
-					ioInfo->recvByte = bytesTrans;
-					return bytesTrans - ioInfo->bodySize;
-				}
-			}
-			else if (bytesTrans == 1) { // 헤더 부족
-				copy(ioInfo->buffer, ioInfo->buffer + bytesTrans,
-					(char*)&(ioInfo->bodySize)); // 가지고있는 Byte까지 카피
-				ioInfo->recvByte = bytesTrans;
-				ioInfo->totByte = 0;
-				return -1;
-			}
-			else {
-				return 0;
-			}
-		}
-		else { // 더 읽기 (BodySize짤린경우)
-			ioInfo->serverMode = iocpService->RECV;
-			if (ioInfo->recvByte < 2) { // Body정보 없음
-				copy(ioInfo->buffer, ioInfo->buffer + (2 - ioInfo->recvByte),
-					(char*)&(ioInfo->bodySize) + ioInfo->recvByte); // 가지고있는 Byte까지 카피
-				CharPool* charPool = CharPool::getInstance();
-				ioInfo->recvBuffer = charPool->Malloc(); // 512 Byte까지 카피 가능
-				copy(ioInfo->buffer + (2 - ioInfo->recvByte), ioInfo->buffer + (ioInfo->bodySize + 2 - ioInfo->recvByte),
-					((char*)ioInfo->recvBuffer) + 2);
-
-				if (bytesTrans - ioInfo->bodySize > 0) { // 패킷 뭉쳐있는 경우
-					copy(ioInfo->buffer + (ioInfo->bodySize - ioInfo->recvByte), ioInfo->buffer + bytesTrans, ioInfo->buffer); // 여기문제?
-					return bytesTrans - (ioInfo->bodySize - ioInfo->recvByte); // 남은 바이트 수  여기문제?
-				}
-				else { // 뭉쳐있지 않으면 remainByte 0
-					return 0;
-				}
-			}
-			else { // body정보는 있음
-				copy(ioInfo->buffer, ioInfo->buffer + (ioInfo->bodySize - ioInfo->recvByte),
-					((char*)ioInfo->recvBuffer) + ioInfo->recvByte);
-
-				if (bytesTrans - ioInfo->bodySize > 0) { // 패킷 뭉쳐있는 경우
-					copy(ioInfo->buffer + (ioInfo->bodySize - ioInfo->recvByte), ioInfo->buffer + bytesTrans, ioInfo->buffer);
-					return bytesTrans - (ioInfo->bodySize - ioInfo->recvByte); // 남은 바이트 수
-				}
-				else if (bytesTrans - ioInfo->bodySize == 0) { // 뭉쳐있지 않으면 remainByte 0
-					return 0;
-				}
-				else { // 바디 내용 부족 => RecvMore에서 받을 부분 복사
-					copy(ioInfo->buffer + 2, ioInfo->buffer + bytesTrans, ioInfo->buffer);
-					ioInfo->recvByte = bytesTrans;
-					return bytesTrans - (ioInfo->bodySize - ioInfo->recvByte);
-				}
-			}
-
-		}
-	}
-
+	
 	// 로그인 여부 체크 후 반환
 	bool BusinessService::SessionCheck(SOCKET sock) {
 		// userMap접근을 위한CS
 		EnterCriticalSection(&this->userCs);
-		int cnt = userMap.count(sock);
+		size_t cnt = userMap.count(sock);
 		LeaveCriticalSection(&this->userCs);
 
 		if (cnt > 0) {
@@ -1195,7 +1095,7 @@ namespace BusinessService {
 
 	void BusinessService::CallCnt(SOCKET socket, const DWORD& cnt) {
 		char msg[30];
-		sprintf(msg, "{\"packet\":%d , \"cnt\":%d}", cnt, userMap.size());
+		sprintf(msg, "{\"packet\":%d , \"cnt\":%zu}", cnt, userMap.size());
 		InsertSendQueue(SendTo::SEND_ME, msg, "", socket, ClientStatus::STATUS_INIT);
 	}
 

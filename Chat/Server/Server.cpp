@@ -169,42 +169,24 @@ unsigned WINAPI RecvThread(LPVOID pCompPort) {
 			MPool* mp = MPool::getInstance();
 			mp->Free(ioInfo);
 		}
-		else if (businessService.getIocpService()->RECV == ioInfo->serverMode
-			|| businessService.getIocpService()->RECV_MORE == ioInfo->serverMode) { // Recv 가 기본 동작
-			// 데이터 읽기 과정
-			short remainByte = min(bytesTrans, BUF_SIZE); // 초기 Remain Byte
-			bool recvMore = false;
-
+		else if (businessService.getIocpService()->RECV == ioInfo->serverMode) { // Recv 가 기본 동작
 			// jobQueue에 데이터를 한번에 담기위한 자료구조
 			queue<JOB_DATA> packetQueue;
+			int len = sizeof(PACKET_DATA);
+			for (size_t i = 0; i < bytesTrans / len; i++)
+			{
+				PACKET_DATA packet;
+				copy(ioInfo->buffer + (i * len), ioInfo->buffer + sizeof(PACKET_DATA) + (i * len), (char*)& packet);
 
-			while (true) {
-				remainByte = businessService.PacketReading(ioInfo, remainByte);
-				// 다 받은 후 정상 로직
-				// DataCopy내에서 사용 메모리 전부 반환
-				if (remainByte >= 0) {
-					JOB_DATA jobData;
-					jobData.msg = businessService.DataCopy(ioInfo, &jobData.nowStatus,
-						&jobData.direction);
-					jobData.socket = sock;
-					packetQueue.push(jobData);
-					// packetQueue 채움
-				}
+				JOB_DATA jobData;
+				jobData.socket = sock;
+				jobData.direction = packet.direction;
+				jobData.nowStatus = packet.nowStatus;
+				jobData.msg = packet.msg;
+				packetQueue.push(jobData);
 
-				if (remainByte == 0) {
-					MPool* mp = MPool::getInstance();
-					mp->Free(ioInfo);
-					break;
-				}
-				else if (remainByte < 0) { // 받은 패킷 부족 || 헤더 다 못받음 -> 더받아야함
-					businessService.getIocpService()->RecvMore(
-						sock, ioInfo); // 패킷 더받기 & 기본 ioInfo 보존
-
-					recvMore = true;
-					break;
-				}
 			}
-
+			
 			{
 				lock_guard<mutex> guard(queueCs);
 				packetCnt.fetch_add(packetQueue.size());
@@ -215,11 +197,9 @@ unsigned WINAPI RecvThread(LPVOID pCompPort) {
 				}
 			}
 			// jobQueue에 한번에 Insert
-
-			if (!recvMore) { // recvMore이 아니면 해당 socket은 받기 동작을 계속한다
-				businessService.getIocpService()->Recv(
-					sock); // 패킷 더받기
-			}
+			businessService.getIocpService()->Recv(sock);
+			MPool* mp = MPool::getInstance();
+			mp->Free(ioInfo);
 		}
 		else if (businessService.getIocpService()->SEND == ioInfo->serverMode) { // Send 끝난경우
 

@@ -13,12 +13,12 @@ using namespace std;
 #define BUF_SIZE 4096
 #define NAME_SIZE 20
 #define FILE_BUF_SIZE 32768
+#define CHAR_SIZE 504
 
 // CP가 Recv 받을때 READ Send 받을때 WRITE
 enum Operation {
 	READ = 6,
-	WRITE,
-	READ_MORE
+	WRITE
 };
 
 // 클라이언트 상태 정보 => 서버에서 보관할것
@@ -30,7 +30,8 @@ enum ClientStatus {
 	STATUS_CHATTIG,
 	STATUS_WHISPER,
 	STATUS_FILE_SEND,
-	STATUS_MAX
+	STATUS_MAX,
+	STATUS_NONE = -1,
 };
 
 enum Direction {
@@ -53,6 +54,8 @@ enum Direction {
 	USER_GOOD,
 	USER_GOOD_INFO,
 	MAX,
+
+	DIRECTION_NONE  = -1,
 };
 
 // 로그인 중복 방지
@@ -83,5 +86,13 @@ typedef struct { // buffer info
 	short bodySize; // 패킷의 body 사이즈
 	char *recvBuffer;
 } PER_IO_DATA, *LPPER_IO_DATA;
+
+
+// Server와 주고받는 데이터 대한 구조체
+typedef struct { // buffer info
+	Direction direction;
+	ClientStatus nowStatus;
+	char msg[CHAR_SIZE];
+} PACKET_DATA, * P_PACKET_DATA;
 
 #endif /* COMMON_H_ */

@@ -25,8 +25,7 @@ private:
 public:
 	enum Operation {
 		RECV = 1,
-		SEND = 2,
-		RECV_MORE = 3
+		SEND = 2
 	};
 
 	IocpService();

@@ -22,17 +22,12 @@ void IocpService::SendToOneMsg(const char *msg, SOCKET mySock, ClientStatus stat
 
 	memset(&(ioInfo->overlapped), 0, sizeof(OVERLAPPED));
 
-	unsigned short len = min((unsigned short)strlen(msg) + 11, BUF_SIZE); // 최대 보낼수 있는 내용 502Byte
-	CharPool* charPool = CharPool::getInstance();
-	char* packet = charPool->Malloc(); // 512 Byte까지 보내기 가능
+	PACKET_DATA packet;
+	packet.nowStatus = status;
+	strncpy(packet.msg, msg, CHAR_SIZE);
 
-	copy((char*)&len, (char*)&len + 2, packet); // dataSize
-	copy((char*)&status, (char*)&status + 4, packet + 2);  // status
-	copy(msg, msg + len, packet + 10);  // msg
-	memset(((char*)packet) + 6, 0, 4); // direction;
-
-	ioInfo->wsaBuf.buf = (char*)packet;
-	ioInfo->wsaBuf.len = len;
+	ioInfo->wsaBuf.buf = (char*)&packet;
+	ioInfo->wsaBuf.len = sizeof(PACKET_DATA);
 	ioInfo->serverMode = Operation::SEND;
 	WSASend(mySock, &(ioInfo->wsaBuf), 1, NULL, 0, &(ioInfo->overlapped),
 	NULL);
@@ -49,17 +44,12 @@ void IocpService::SendToRoomMsg(const char *msg, const list<SOCKET> &lists,
 		LPPER_IO_DATA ioInfo = mp->Malloc();
 
 		memset(&(ioInfo->overlapped), 0, sizeof(OVERLAPPED));
-		unsigned short len = min((unsigned short)strlen(msg) + 11, BUF_SIZE); // 최대 보낼수 있는 내용 502Byte
+		PACKET_DATA packet;
+		packet.nowStatus = status;
+		strncpy(packet.msg, msg, CHAR_SIZE);
 
-		char* packet = charPool->Malloc(); // 512 Byte까지 읽기 가능
-
-		copy((char*)&len, (char*)&len + 2, packet); // dataSize
-		copy((char*)&status, (char*)&status + 4, packet + 2);  // status
-		copy(msg, msg + len, packet + 10);  // msg
-		memset(((char*)packet) + 6, 0, 4); // direction;
-
-		ioInfo->wsaBuf.buf = (char*)packet;
-		ioInfo->wsaBuf.len = len;
+		ioInfo->wsaBuf.buf = (char*)& packet;
+		ioInfo->wsaBuf.len = sizeof(PACKET_DATA);
 		ioInfo->serverMode = Operation::SEND;
 		ioInfo->recvByte = 0;
 
@@ -69,21 +59,6 @@ void IocpService::SendToRoomMsg(const char *msg, const list<SOCKET> &lists,
 	});
 }
 
-// Recv 계속 공통함수
-void IocpService::RecvMore(SOCKET sock, LPPER_IO_DATA ioInfo) {
-	DWORD recvBytes = 0;
-	DWORD flags = 0;
-
-	memset(&(ioInfo->overlapped), 0, sizeof(OVERLAPPED));
-	ioInfo->wsaBuf.len = BUF_SIZE;
-	memset(ioInfo->buffer, 0, BUF_SIZE);
-	ioInfo->wsaBuf.buf = ioInfo->buffer;
-	ioInfo->serverMode = Operation::RECV_MORE;
-	// 계속 Recv
-	WSARecv(sock, &(ioInfo->wsaBuf), 1, &recvBytes, &flags,
-			&(ioInfo->overlapped),
-			NULL);
-}
 
 // Recv 공통함수
 void IocpService::Recv(SOCKET sock) {

@@ -15,6 +15,7 @@ using namespace std;
 #define BUF_SIZE 4096
 #define NAME_SIZE 20
 #define FILE_BUF_SIZE 32768
+#define CHAR_SIZE 504
 
 // 클라이언트 상태 정보 => 서버에서 보관할것
 enum ClientStatus {
@@ -25,7 +26,8 @@ enum ClientStatus {
 	STATUS_CHATTIG,
 	STATUS_WHISPER,
 	STATUS_FILE_SEND,
-	STATUS_MAX
+	STATUS_MAX,
+	STATUS_NONE = -1,
 };
 
 enum Direction {
@@ -52,7 +54,8 @@ enum Direction {
 	// Node 관리콘솔에서 보낼 메세지
 	CALLCOUNT = 20,
 	BAN = 21,
-	EXIT = 22
+	EXIT = 22,
+	DIRECTION_NONE = -1,
 };
 
 // 로그인 중복 방지
@@ -99,6 +102,7 @@ typedef struct { // buffer info
 	ClientStatus nowStatus;
 	string msg;
 	int job;
+
 } JOB_DATA, *P_JOB_DATA;
 
 // Send Queue에 대한 구조체
@@ -116,5 +120,12 @@ typedef struct { // buffer info
 	recursive_mutex listCs;
 } ROOM_DATA, *P_ROOM_DATA;
 
+
+// Client와 주고받는 데이터 대한 구조체
+typedef struct { // buffer info
+	Direction direction;
+	ClientStatus nowStatus;
+	char msg[CHAR_SIZE];
+} PACKET_DATA, * P_PACKET_DATA;
 
 #endif /* COMMON_H_ */

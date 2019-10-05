@@ -44,21 +44,6 @@ bool IsAlphaNumber(string str) {
 	}
 }
 
-// Recv 계속 공통함수
-void RecvMore(SOCKET sock, LPPER_IO_DATA ioInfo) {
-	DWORD recvBytes = 0;
-	DWORD flags = 0;
-	memset(&(ioInfo->overlapped), 0, sizeof(OVERLAPPED));
-	ioInfo->wsaBuf.len = BUF_SIZE;
-	memset(ioInfo->buffer, 0, BUF_SIZE);
-	ioInfo->wsaBuf.buf = ioInfo->buffer;
-	ioInfo->serverMode = READ_MORE; // GetQueuedCompletionStatus 이후 분기가 Recv로 갈수 있게
-
-	// 계속 Recv
-	WSARecv(sock, &(ioInfo->wsaBuf), 1, &recvBytes, &flags,
-		&(ioInfo->overlapped),
-		NULL);
-}
 
 // Recv 공통함수
 void Recv(SOCKET sock) {
@@ -81,22 +66,19 @@ void Recv(SOCKET sock) {
 }
 
 // WSASend를 call
-void SendMsg(SOCKET clientSock, const char* msg, int status, int direction) {
+void SendMsg(SOCKET clientSock, string msg, int status, int direction) {
 	MPool* mp = MPool::getInstance();
 	LPPER_IO_DATA ioInfo = mp->Malloc();
 
 	memset(&(ioInfo->overlapped), 0, sizeof(OVERLAPPED));
 
-	unsigned short len = min((unsigned short)strlen(msg) + 11, BUF_SIZE); // 최대 보낼수 있는 내용 502Byte
-	CharPool* charPool = CharPool::getInstance();
-	char* packet = charPool->Malloc(); // 512 Byte까지 읽기 가능
-
-	copy((char*)&len, (char*)&len + 2, packet); // dataSize
-	copy((char*)&status, (char*)&status + 4, packet + 2);  // status
-	copy((char*)&direction, (char*)&direction + 4, packet + 6);  // direction
-	copy(msg, msg + len, packet + 10);  // msg
-	ioInfo->wsaBuf.buf = (char*)packet;
-	ioInfo->wsaBuf.len = len;
+	PACKET_DATA packet;
+	packet.direction = static_cast<Direction>(direction);
+	packet.nowStatus = static_cast<ClientStatus>(status);
+	strncpy(packet.msg, msg.c_str(), CHAR_SIZE);
+	
+	ioInfo->wsaBuf.buf = (char*)& packet;
+	ioInfo->wsaBuf.len = sizeof(PACKET_DATA);
 	ioInfo->serverMode = WRITE;
 
 	WSASend(clientSock, &(ioInfo->wsaBuf), 1, NULL, 0, &(ioInfo->overlapped),
@@ -338,111 +320,10 @@ unsigned WINAPI SendMsgThread(void *arg) {
 		if (msg.compare("") == 0) { // 입력안하면 Send안함
 			continue;
 		}
-
-		SendMsg(clientSock, msg.c_str(), status, direction);
+		SendMsg(clientSock, msg, status, direction);
 	}
 	return 0;
 }
-
-// 패킷 데이터 읽기
-short PacketReading(LPPER_IO_DATA ioInfo, short bytesTrans) {
-	// IO 완료후 동작 부분
-	if (READ == ioInfo->serverMode) {
-		if (bytesTrans >= 2) {
-			copy(ioInfo->buffer, ioInfo->buffer + 2,
-				(char*)&(ioInfo->bodySize));
-			CharPool* charPool = CharPool::getInstance();
-			ioInfo->recvBuffer = charPool->Malloc(); // 512 Byte까지 카피 가능
-			if ((bytesTrans - ioInfo->bodySize > 0) && (bytesTrans - ioInfo->bodySize <= BUF_SIZE)) { // 패킷 뭉쳐있는 경우
-				copy(ioInfo->buffer, ioInfo->buffer + ioInfo->bodySize,
-					((char*)ioInfo->recvBuffer));
-
-				copy(ioInfo->buffer + ioInfo->bodySize, ioInfo->buffer + bytesTrans, ioInfo->buffer); // 다음에 또 쓸 byte배열 복사
-				return bytesTrans - ioInfo->bodySize; // 남은 바이트 수
-			}
-			else if (bytesTrans - ioInfo->bodySize == 0) { // 뭉쳐있지 않으면 remainByte 0
-				copy(ioInfo->buffer, ioInfo->buffer + ioInfo->bodySize,
-					((char*)ioInfo->recvBuffer));
-				return 0;
-			}
-			else  if (bytesTrans - ioInfo->bodySize < 0) { // 바디 내용 부족 => RecvMore에서 받을 부분 복사
-				copy(ioInfo->buffer, ioInfo->buffer + bytesTrans, ((char*)ioInfo->recvBuffer));
-				ioInfo->recvByte = bytesTrans;
-				return bytesTrans - ioInfo->bodySize;
-			}
-			else {
-				return 0;
-			}
-		}
-		else if (bytesTrans == 1) { // 헤더 부족
-			copy(ioInfo->buffer, ioInfo->buffer + bytesTrans,
-				(char*)&(ioInfo->bodySize)); // 가지고있는 Byte까지 카피
-			ioInfo->recvByte = bytesTrans;
-			ioInfo->totByte = 0;
-			return -1;
-		}
-		else {
-			return 0;
-		}
-	}
-	else { // 더 읽기 (BodySize짤린경우)
-		ioInfo->serverMode = READ;
-		if (ioInfo->recvByte < 2) { // Body정보 없음
-			copy(ioInfo->buffer, ioInfo->buffer + (2 - ioInfo->recvByte),
-				(char*)&(ioInfo->bodySize) + ioInfo->recvByte); // 가지고있는 Byte까지 카피
-			CharPool* charPool = CharPool::getInstance();
-			ioInfo->recvBuffer = charPool->Malloc(); // 512 Byte까지 카피 가능
-			copy(ioInfo->buffer + (2 - ioInfo->recvByte), ioInfo->buffer + (ioInfo->bodySize + 2 - ioInfo->recvByte),
-				((char*)ioInfo->recvBuffer) + 2);
-
-			if (bytesTrans - ioInfo->bodySize > 0) { // 패킷 뭉쳐있는 경우
-				copy(ioInfo->buffer + (ioInfo->bodySize - ioInfo->recvByte), ioInfo->buffer + bytesTrans, ioInfo->buffer); // 여기문제?
-				return bytesTrans - (ioInfo->bodySize - ioInfo->recvByte); // 남은 바이트 수  여기문제?
-			}
-			else { // 뭉쳐있지 않으면 remainByte 0
-				return 0;
-			}
-		}
-		else { // body정보는 있음
-			copy(ioInfo->buffer, ioInfo->buffer + (ioInfo->bodySize - ioInfo->recvByte),
-				((char*)ioInfo->recvBuffer) + ioInfo->recvByte);
-
-			// cout << "bodySize readmore" << ioInfo->bodySize << endl;
-
-			if (bytesTrans - ioInfo->bodySize > 0) { // 패킷 뭉쳐있는 경우
-				copy(ioInfo->buffer + (ioInfo->bodySize - ioInfo->recvByte), ioInfo->buffer + bytesTrans, ioInfo->buffer);
-				return bytesTrans - (ioInfo->bodySize - ioInfo->recvByte); // 남은 바이트 수
-			}
-			else if (bytesTrans - ioInfo->bodySize == 0) { // 뭉쳐있지 않으면 remainByte 0
-				return 0;
-			}
-			else { // 바디 내용 부족 => RecvMore에서 받을 부분 복사
-				copy(ioInfo->buffer + 2, ioInfo->buffer + bytesTrans, ioInfo->buffer);
-				ioInfo->recvByte = bytesTrans;
-				return bytesTrans - (ioInfo->bodySize - ioInfo->recvByte);
-			}
-		}
-
-	}
-}
-
-// 클라이언트에게 받은 데이터 복사후 구조체 해제
-char* DataCopy(LPPER_IO_DATA ioInfo, int *status) {
-	copy(((char*)ioInfo->recvBuffer) + 2, ((char*)ioInfo->recvBuffer) + 6,
-		(char*)status);
-	CharPool* charPool = CharPool::getInstance();
-	char* msg = charPool->Malloc(); // 512 Byte까지 카피 가능
-
-	copy(((char*)ioInfo->recvBuffer) + 10,
-		((char*)ioInfo->recvBuffer) + 10
-		+ min(ioInfo->bodySize, (DWORD)BUF_SIZE), msg); //에러위치
-
-	// 다 복사 받았으니 할당 해제
-	charPool->Free(ioInfo->recvBuffer);
-
-	return msg;
-}
-
 
 //  파일 수신 스레드
 unsigned WINAPI RecvFileThread(LPVOID arg) {
@@ -505,68 +386,46 @@ unsigned WINAPI RecvMsgThread(LPVOID pCompPort) {
 			mp->Free(ioInfo);
 			exit(EXIT_SUCCESS);
 		}
-		else if (READ_MORE == ioInfo->serverMode
-			|| READ == ioInfo->serverMode) {
+		else if (READ == ioInfo->serverMode) {
+			PACKET_DATA packet;
+			copy(ioInfo->buffer, ioInfo->buffer + sizeof(PACKET_DATA), (char*)& packet);
 
-			// 데이터 읽기 과정
-			short remainByte = min(bytesTrans, BUF_SIZE); // 초기 Remain Byte
-			bool recvMore = false;
 
-			while (1) {
-				remainByte = PacketReading(ioInfo, remainByte);
+			int status = packet.nowStatus;
 
-				// 다 받은 후 정상 로직
-				// DataCopy내에서 사용 메모리 전부 반환
-				if (remainByte >= 0) {
-					int status;
-					char *msg = DataCopy(ioInfo, &status);
-					// Client의 상태 정보 갱신 필수
-					// 서버에서 준것으로 갱신
-					if (status == STATUS_LOGOUT || status == STATUS_WAITING
-						|| status == STATUS_CHATTIG) {
-						if (clientStatus != status) { // 상태 변경시 콘솔 clear
-							system("cls");
-							switch (status) {
-							case STATUS_LOGOUT:
-								SetConsoleTextAttribute(
-									GetStdHandle(STD_OUTPUT_HANDLE), 10);
-								break;
-							case STATUS_WAITING:
-								SetConsoleTextAttribute(
-									GetStdHandle(STD_OUTPUT_HANDLE), 9);
-								break;
-							case STATUS_CHATTIG:
-								SetConsoleTextAttribute(
-									GetStdHandle(STD_OUTPUT_HANDLE), 14);
-								break;
-							}
-
-						}
-
-						clientStatus = status; // clear이후 client상태변경 해준다
-						cout << msg << endl;
+			// Client의 상태 정보 갱신 필수
+			// 서버에서 준것으로 갱신
+			if (status == STATUS_LOGOUT || status == STATUS_WAITING
+				|| status == STATUS_CHATTIG) {
+				if (clientStatus != status) { // 상태 변경시 콘솔 clear
+					system("cls");
+					switch (status) {
+					case STATUS_LOGOUT:
+						SetConsoleTextAttribute(
+							GetStdHandle(STD_OUTPUT_HANDLE), 10);
+						break;
+					case STATUS_WAITING:
+						SetConsoleTextAttribute(
+							GetStdHandle(STD_OUTPUT_HANDLE), 9);
+						break;
+					case STATUS_CHATTIG:
+						SetConsoleTextAttribute(
+							GetStdHandle(STD_OUTPUT_HANDLE), 14);
+						break;
 					}
-					else if (status == STATUS_WHISPER) { // 귓속말 상태일때는 클라이언트 상태변화 없음
-						cout << msg << endl;
-					}
-					CharPool* charPool = CharPool::getInstance();
-					charPool->Free(msg);
+
 				}
 
-				if (remainByte == 0) {
-					MPool* mp = MPool::getInstance();
-					mp->Free(ioInfo);
-					break;
-				}
-				else if (remainByte < 0) {// 받은 패킷 부족 || 헤더 다 못받음 -> 더받아야함
-					RecvMore(sock, ioInfo); // 패킷 더받기 & 기본 ioInfo 보존
-					recvMore = true;
-					break;
-				}
+				clientStatus = status; // clear이후 client상태변경 해준다
+				cout << packet.msg << endl;
 			}
-			if (!recvMore) {
-				Recv(sock);
+			else if (status == STATUS_WHISPER) { // 귓속말 상태일때는 클라이언트 상태변화 없음
+				cout << packet.msg << endl;
 			}
+			
+			Recv(sock);
+			MPool* mp = MPool::getInstance();
+			mp->Free(ioInfo);
 		}
 		else if (WRITE == ioInfo->serverMode) {
 			MPool* mp = MPool::getInstance();
