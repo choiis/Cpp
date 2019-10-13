@@ -22,14 +22,6 @@
 #include "Redis.h"
 
 
-// SQLwork에게 전달할 정보들
-enum class SqlWork{
-	UPDATE_USER,
-	INSERT_LOGIN,
-	INSERT_DIRECTION,
-	INSERT_CHATTING
-};
-
 // 서버에 접속한 유저 정보
 // client 소켓에 대응하는 세션정보
 typedef struct { // socket info
@@ -39,11 +31,6 @@ typedef struct { // socket info
 	ClientStatus status;
 } PER_HANDLE_DATA, *LPPER_HANDLE_DATA;
 
-// 비동기 통신에 필요한 구조체
-typedef struct { // buffer info
-	SqlWork direction;
-	LogVo vo;
-} SQL_DATA, *P_SQL_DATA;
 
 namespace BusinessService {
 
@@ -56,8 +43,6 @@ private:
 	// 서버의 방 정보 저장
 	map<string, shared_ptr<ROOM_DATA>> roomMap;
 
-	queue<SQL_DATA> sqlQueue;
-
 	queue<Send_DATA> sendQueue;
 	// 임계영역에 필요한 객체
 	// 커널모드 아니라 유저모드수준 동기화 사용할 예
@@ -69,8 +54,6 @@ private:
 	CRITICAL_SECTION userCs;
 	// roomMap 동기화
 	CRITICAL_SECTION roomCs;
-	// sqlQueue 동기화
-	mutex sqlCs;
 	// sendQueue 동기화
 	mutex sendCs;
 
@@ -92,8 +75,6 @@ public:
 	BusinessService();
 	// 소멸자
 	virtual ~BusinessService();
-	// SQLThread에서 동작할 부분
-	void SQLwork();
 	// SendThread에서 동작할 부분
 	void Sendwork();
 	// InsertSendQueue 공통화

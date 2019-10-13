@@ -26,16 +26,6 @@ mutex queueCs;
 
 atomic<int> packetCnt = 0;
 
-// DB log insert를 담당하는 스레드
-unsigned WINAPI SQLThread(void *arg) {
-
-	while (true) {
-		businessService.SQLwork();
-	}
-
-	return 0;
-}
-
 // Send broadcast 담당하는 스레드
 unsigned WINAPI SendThread(void *arg) {
 
@@ -253,11 +243,6 @@ int main(int argc, char* argv[]) {
 	// Thread Pool 비지니스 로직 담당
 	for (int i = 0; i < 2 * process; i++) {
 		_beginthreadex(NULL, 0, WorkThread, NULL, 0, NULL);
-	}
-
-	// Thread Pool 로그 저장 SQL 실행에 쓰임
-	for (int i = 0; i < process; i++) {
-		_beginthreadex(NULL, 0, SQLThread, NULL, 0, NULL);
 	}
 
 	// Thread Pool BroadCast 해줌
